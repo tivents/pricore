@@ -3,18 +3,25 @@
 namespace App\Domains\Repository\Http\Requests;
 
 use App\Domains\Repository\Contracts\Enums\GitProvider;
+use App\Domains\Repository\Http\Requests\Concerns\HasPackagePaths;
 use App\Domains\Repository\Rules\ValidRepositoryIdentifier;
+use App\Models\Organization;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class StoreRepositoryRequest extends FormRequest
 {
+    use HasPackagePaths;
+
     /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
+        /** @var Organization $organization */
+        $organization = $this->route('organization');
+
         return [
             'name' => ['nullable', 'string', 'max:255'],
             'provider' => ['required', 'string', Rule::enum(GitProvider::class)],
@@ -25,7 +32,13 @@ class StoreRepositoryRequest extends FormRequest
                 new ValidRepositoryIdentifier(GitProvider::tryFrom((string) $this->input('provider'))),
             ],
             'default_branch' => ['nullable', 'string', 'max:255'],
-            'ssh_key_uuid' => ['nullable', 'uuid', Rule::exists('organization_ssh_keys', 'uuid')],
+            'ssh_key_uuid' => [
+                'nullable',
+                'uuid',
+                Rule::exists('organization_ssh_keys', 'uuid')
+                    ->where('organization_uuid', $organization->uuid),
+            ],
+            ...$this->packagePathRules(),
         ];
     }
 }

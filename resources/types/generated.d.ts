@@ -18,7 +18,7 @@ createdAt: string | null,
 };
 }
 namespace Enums {
-export type ActivityType = 'repository.added' | 'repository.removed' | 'repository.synced' | 'repository.sync_failed' | 'package.created' | 'package.removed' | 'member.added' | 'member.removed' | 'member.role_changed' | 'invitation.sent' | 'token.created' | 'token.revoked' | 'ssh_key.generated' | 'ssh_key.deleted' | 'mirror.added' | 'mirror.removed' | 'mirror.synced' | 'mirror.sync_failed' | 'security.vulnerabilities_detected';
+export type ActivityType = 'repository.added' | 'repository.removed' | 'repository.synced' | 'repository.sync_failed' | 'package.created' | 'package.removed' | 'package.version_uploaded' | 'member.added' | 'member.removed' | 'member.role_changed' | 'invitation.sent' | 'token.created' | 'token.revoked' | 'ssh_key.generated' | 'ssh_key.deleted' | 'mirror.added' | 'mirror.removed' | 'mirror.synced' | 'mirror.sync_failed' | 'security.vulnerabilities_detected';
 }
 }
 }
@@ -174,6 +174,10 @@ export type OrganizationRole = 'owner' | 'admin' | 'member';
 namespace Package {
 namespace Contracts {
 namespace Data {
+export type ArtifactContentsData = {
+composerJson: Record<string, any>,
+readme: string | null,
+};
 export type FrequentPackageData = {
 uuid: string,
 name: string,
@@ -186,12 +190,17 @@ description: string | null,
 type: string | null,
 visibility: string,
 isProxy: boolean,
+isArtifact: boolean,
 versionsCount: number,
 latestVersion: string | null,
 updatedAt: string,
 repositoryName: string | null,
 repositoryIdentifier: string | null,
 repositoryUuid: string | null,
+repositoryProvider: string | null,
+repositorySyncStatus: App.Domains.Repository.Contracts.Enums.RepositorySyncStatus | null,
+repositoryLastSyncedAt: string | null,
+sourcePath: string | null,
 mirrorName: string | null,
 mirrorUuid: string | null,
 };
@@ -210,6 +219,7 @@ releasedAt: string | null,
 sourceUrl: string | null,
 sourceReference: string | null,
 sourceTag: string | null,
+sourcePath: string | null,
 commitUrl: string | null,
 tagUrl: string | null,
 distSize: number | null,
@@ -224,6 +234,7 @@ releasedAt: string | null,
 sourceUrl: string | null,
 sourceReference: string | null,
 sourceTag: string | null,
+sourcePath: string | null,
 commitUrl: string | null,
 tagUrl: string | null,
 description: string | null,
@@ -251,6 +262,9 @@ export type VersionDailyDownloadData = {
 version: string,
 dailyDownloads: App.Domains.Organization.Contracts.Data.DailyDownloadData[],
 };
+}
+namespace Enums {
+export type ArtifactPublishResult = 'added' | 'replaced' | 'unchanged';
 }
 }
 }
@@ -298,6 +312,13 @@ size: number,
 export type ExistingVersionData = {
 version: string,
 sourceReference: string,
+distFailed: boolean,
+};
+export type RecentSyncData = {
+uuid: string,
+status: App.Domains.Repository.Contracts.Enums.SyncStatus,
+statusLabel: string,
+startedAt: string,
 };
 export type RefData = {
 name: string,
@@ -319,11 +340,23 @@ syncStatus: App.Domains.Repository.Contracts.Enums.RepositorySyncStatus | null,
 syncStatusLabel: string | null,
 lastSyncedAt: string | null,
 packagesCount: number,
+packagePaths: string[] | null,
 supportsWebhooks: boolean,
 supportsAutomaticWebhooks: boolean,
 webhookActive: boolean,
 webhookUrl: string | null,
 webhookSecret: string | null,
+};
+export type RepositoryHealthData = {
+uuid: string,
+name: string,
+provider: string,
+repoIdentifier: string,
+syncStatus: App.Domains.Repository.Contracts.Enums.RepositorySyncStatus | null,
+syncStatusLabel: string | null,
+lastSyncedAt: string | null,
+packagesCount: number,
+recentSyncs: App.Domains.Repository.Contracts.Data.RecentSyncData[],
 };
 export type RepositorySuggestionData = {
 name: string,
@@ -344,10 +377,21 @@ versionsUpdated: number,
 versionsRemoved: number,
 details: Record<string, any> | null,
 };
+export type SyncRefResultData = {
+added: number,
+updated: number,
+skipped: number,
+removed: number,
+packagesFound: number,
+};
 export type SyncResultData = {
 added: number,
 updated: number,
 skipped: number,
+};
+export type UpdatePackagePathsResultData = {
+changed: boolean,
+packagesRemoved: number,
 };
 }
 namespace Enums {
@@ -427,6 +471,14 @@ advisory: App.Domains.Security.Contracts.Data.SecurityAdvisoryData,
 matchType: App.Domains.Security.Contracts.Enums.AdvisoryMatchType,
 dependencyName: string | null,
 };
+export type SecurityStatsData = {
+affectedPackages: number,
+totalVulnerabilities: number,
+criticalCount: number,
+highCount: number,
+mediumCount: number,
+lowCount: number,
+};
 }
 namespace Enums {
 export type AdvisoryMatchType = 'direct' | 'dependency';
@@ -440,6 +492,7 @@ namespace Data {
 export type AccessTokenData = {
 uuid: string,
 name: string,
+canPublish: boolean,
 lastUsedAt: string | null,
 expiresAt: string | null,
 createdAt: string,
@@ -450,6 +503,9 @@ name: string,
 expiresAt: string | null,
 organizationUuid: string | null,
 };
+}
+namespace Enums {
+export type TokenScope = 'read' | 'write';
 }
 }
 }
@@ -464,6 +520,10 @@ export type FlashData = {
 status: string | null,
 error: string | null,
 };
+export type RecentlyVisitedData = {
+packages: App.Domains.Search.Contracts.Data.SearchPackageData[],
+repositories: App.Domains.Search.Contracts.Data.SearchRepositoryData[],
+};
 export type SearchData = {
 packages: App.Domains.Search.Contracts.Data.SearchPackageData[],
 repositories: App.Domains.Search.Contracts.Data.SearchRepositoryData[],
@@ -473,6 +533,7 @@ name: string,
 version: string | null,
 auth: App.Http.Data.AuthData,
 search: App.Http.Data.SearchData | null,
+recentlyVisited: App.Http.Data.RecentlyVisitedData | null,
 sidebarOpen: boolean,
 flash: App.Http.Data.FlashData | null,
 };

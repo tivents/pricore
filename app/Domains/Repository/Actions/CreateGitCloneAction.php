@@ -63,9 +63,11 @@ class CreateGitCloneAction
         unset($env['_temp_key_file']);
 
         try {
+            // A bare clone has no fetch refspec, so the refs to update must be named
+            // explicitly; otherwise the fetch only writes FETCH_HEAD.
             $result = Process::path($clonePath)
                 ->env($env)
-                ->run(['git', 'fetch', '--all', '--prune']);
+                ->run(['git', 'fetch', '--prune', 'origin', '+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*']);
 
             if ($result->failed()) {
                 throw new GitProviderException('Failed to update repository clone: '.$result->errorOutput());
@@ -89,6 +91,10 @@ class CreateGitCloneAction
         $sshKey = $repository->sshKey;
 
         if ($sshKey) {
+            if ($sshKey->organization_uuid !== $repository->organization_uuid) {
+                throw new GitProviderException('The SSH key does not belong to the repository organization.');
+            }
+
             $tempKeyFile = sys_get_temp_dir().'/pricore-ssh-'.Str::random(16);
             file_put_contents($tempKeyFile, $sshKey->private_key."\n");
             chmod($tempKeyFile, 0600);

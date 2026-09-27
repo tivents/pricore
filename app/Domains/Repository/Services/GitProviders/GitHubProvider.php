@@ -56,7 +56,7 @@ class GitHubProvider extends AbstractGitProvider
 
                     return false;
                 },
-                throw: true,
+                throw: false,
             )
             ->withResponseMiddleware(function (ResponseInterface $response) {
                 $remaining = $response->getHeaderLine('X-RateLimit-Remaining');
@@ -226,6 +226,62 @@ class GitHubProvider extends AbstractGitProvider
         }
     }
 
+    /**
+     * @return array<int, array{name: string, type: 'dir'|'file'}>
+     */
+    public function listDirectory(string $ref, string $path): array
+    {
+        try {
+            $path = trim($path, '/');
+
+            $response = $this->http->get("/repos/{$this->repositoryIdentifier}/contents/{$path}", [
+                'ref' => $ref,
+            ]);
+
+            if ($response->status() === 404) {
+                return [];
+            }
+
+            if ($response->failed()) {
+                throw new GitProviderException(
+                    "Failed to list directory on GitHub: {$response->body()}"
+                );
+            }
+
+            $data = $response->json();
+
+            // A file path yields a single object; only a directory yields a list of entries
+            if (! is_array($data) || ! array_is_list($data)) {
+                return [];
+            }
+
+            $entries = [];
+
+            foreach ($data as $entry) {
+                $entries[] = [
+                    'name' => (string) $entry['name'],
+                    'type' => ($entry['type'] ?? null) === 'dir' ? 'dir' : 'file',
+                ];
+            }
+
+            return $entries;
+        } catch (GitProviderException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('GitHub API error listing directory', [
+                'repository' => $this->repositoryIdentifier,
+                'ref' => $ref,
+                'path' => $path,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw new GitProviderException(
+                "Failed to list directory: {$e->getMessage()}",
+                previous: $e
+            );
+        }
+    }
+
     public function validateCredentials(): bool
     {
         try {
@@ -313,11 +369,12 @@ class GitHubProvider extends AbstractGitProvider
         }
     }
 
-    public function downloadArchive(string $ref, string $outputPath): bool
+    protected function downloadFullArchive(string $ref, string $outputPath): bool
     {
         try {
             /** @var Response $response */
-            $response = $this->http
+            // withOptions() changes the client in place; the sink must not outlive this request
+            $response = (clone $this->http)
                 ->withOptions(['sink' => $outputPath])
                 ->get("/repos/{$this->repositoryIdentifier}/zipball/{$ref}");
 
@@ -372,6 +429,7 @@ class GitHubProvider extends AbstractGitProvider
                 $owners[] = $userResponse->json('login');
             }
 
+            $organizations = [];
             $page = 1;
             do {
                 $response = $this->http->get('/user/orgs', [
@@ -385,13 +443,19 @@ class GitHubProvider extends AbstractGitProvider
 
                 $orgs = $response->json();
                 foreach ($orgs as $org) {
-                    $owners[] = $org['login'];
+                    $organizations[] = $org['login'];
                 }
 
                 $page++;
             } while (count($orgs) === 100);
 
-            return $owners;
+            // Fine-grained tokens cannot list organization memberships, so /user/orgs
+            // comes back empty for them.
+            if ($organizations === []) {
+                $organizations = $this->getOrganizationsFromRepositories();
+            }
+
+            return array_values(array_unique([...$owners, ...$organizations]));
         } catch (\Exception $e) {
             Log::error('GitHub API error fetching owners', [
                 'error' => $e->getMessage(),
@@ -402,6 +466,40 @@ class GitHubProvider extends AbstractGitProvider
                 previous: $e
             );
         }
+    }
+
+    /**
+     * Organizations that own a repository the token can reach.
+     *
+     * @return array<int, string>
+     */
+    protected function getOrganizationsFromRepositories(): array
+    {
+        $organizations = [];
+        $page = 1;
+
+        do {
+            $response = $this->http->get('/user/repos', [
+                'per_page' => 100,
+                'page' => $page,
+                'affiliation' => 'collaborator,organization_member',
+            ]);
+
+            if ($response->failed()) {
+                break;
+            }
+
+            $repos = $response->json();
+            foreach ($repos as $repo) {
+                if (($repo['owner']['type'] ?? null) === 'Organization') {
+                    $organizations[] = $repo['owner']['login'];
+                }
+            }
+
+            $page++;
+        } while (count($repos) === 100);
+
+        return $organizations;
     }
 
     /**
